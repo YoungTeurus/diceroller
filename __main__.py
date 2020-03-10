@@ -243,7 +243,7 @@ class DiceRoller(QtWidgets.QMainWindow, diceroller_v1_1.Ui_MainWindow):
         # As you can see, there is no connect() call; UDP has no connections.
         # Instead, data is directly sent to the recipient via sendto().
         sock.sendto(data.encode(), (HOST, PORT))
-        print("Sent:     {}".format(data))
+        print("Sent to {}:{} : {}".format(HOST,PORT,data))
 
     def parse_data(self, data):
         """
