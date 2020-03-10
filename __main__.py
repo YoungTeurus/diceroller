@@ -31,8 +31,8 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
         # self.request is the TCP socket connected to the client
         data = self.request[0].decode()  # Вытаскиваем data
         data_dict = json.loads(data)  # Делаем из этого словарь
-        # print("{} wrote: ".format(self.client_address[0]), end="")
-        # print(data_dict)
+        print("{} wrote: ".format(self.client_address[0]), end="")
+        print(data_dict)
         self.DiceRoller_object.parse_data(data_dict)
         self.DiceRoller_object.show_roll_result()
         self.DiceRoller_object.ip = self.client_address[0]
@@ -52,7 +52,7 @@ class DiceRoller(QtWidgets.QMainWindow, diceroller_v1_1.Ui_MainWindow):
 
     # server_thread = None  # Поток для поддержания сервера
     server = None  # Сервер
-    ip = None
+    ip = "localhost"
 
     def __init__(self):
         super().__init__()
@@ -224,8 +224,10 @@ class DiceRoller(QtWidgets.QMainWindow, diceroller_v1_1.Ui_MainWindow):
         self.show_text(texts[4], True)
 
     def connect_to_server(self):
+        self.ip = self.ip_line.text()
+
         # Пока что просто пытаемся отправить data
-        HOST, PORT = "localhost", 9999
+        HOST, PORT = self.ip, 9999
         data_dict = {
             "rolled_numbers": self.rolled_numbers,
             "roll_sum": self.roll_sum,
