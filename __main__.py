@@ -216,7 +216,9 @@ class DiceRoller(QtWidgets.QMainWindow, diceroller_v1_1.Ui_MainWindow):
         class MyUDPHandler_with_object(MyUDPHandler):  # Костыль(?)
             DiceRoller_object = self  # Передаю ссылку на объект
 
-        HOST, PORT = "localhost", 9999
+        self.ip = self.ip_line.text()
+
+        HOST, PORT = self.ip, 9999
         self.server = socketserver.UDPServer((HOST, PORT), MyUDPHandler_with_object)
         server_thread = threading.Thread(target=self.server.serve_forever)
         server_thread.start()
