@@ -2,6 +2,7 @@ import sys  # sys нужен для передачи argv в QApplication
 import diceroller_v1_1
 import random
 from PyQt5 import QtWidgets
+from PyQt5.QtCore import pyqtSignal
 import time
 import socketserver
 import socket
@@ -20,7 +21,8 @@ errors_texts = (
     "Ошибок нет!",  # 0
     "Проверьте значения полей ввода!",  # 1
     "Количество кубиков не может быть отрицательным числом!",  # 2
-    "Количество граней кубика не может быть отрицательным числом!"  # 3
+    "Количество граней кубика не может быть отрицательным числом!",  # 3
+    "Проверьте IP-адрес сервера!"  # 4
 )
 
 
@@ -28,18 +30,26 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
     DiceRoller_object = None
 
     def handle(self):
-        # self.request is the TCP socket connected to the client
         data = self.request[0].decode()  # Вытаскиваем data
         data_dict = json.loads(data)  # Делаем из этого словарь
         print("{} wrote: ".format(self.client_address[0]), end="")
-        print(data_dict)
-        self.DiceRoller_object.parse_data(data_dict)
-        self.DiceRoller_object.show_roll_result()
-        self.DiceRoller_object.ip = self.client_address[0]
-        self.DiceRoller_object.ip_line.setText(self.DiceRoller_object.ip)
-        # print(data)
-        # just send back the same data, but upper-cased
-        # self.request.sendall(self.data.upper())
+        print(data_dict)  # Вывод дебаг-информации
+
+        # self.DiceRoller_object.parse_data(data_dict)  # Загрузка данных из словаря
+        # self.DiceRoller_object.show_roll_result()  # Выводит результаты броска
+        self.DiceRoller_object.client_ip = self.client_address[0]  # Сохранение IP-адреса отправителя
+        self.DiceRoller_object.last_data = data_dict
+        self.DiceRoller_object.mywidget.evented.emit()  # Вызов события северного виджета
+
+
+class ServerWidget(QtWidgets.QWidget):
+    """
+    Виджет, который имеет одно назначение - хранить сигнал для вызова функции
+    """
+    evented = pyqtSignal()  # Сигнал
+
+    def __init__(self):
+        super().__init__()
 
 
 class DiceRoller(QtWidgets.QMainWindow, diceroller_v1_1.Ui_MainWindow):
@@ -48,11 +58,15 @@ class DiceRoller(QtWidgets.QMainWindow, diceroller_v1_1.Ui_MainWindow):
     num_of_rolled_dices = 1  # Количество брошенных кубиков
     roll_dimention = 20  # Количество граней у каждого кубика
     roll_bonus = 0  # Бонус для прибавления к кубикам
-    roll_from = "local"
+    roll_from = "local"  # Отправитель
 
-    # server_thread = None  # Поток для поддержания сервера
+    last_data = None  # Присланные данные от сервера
+
     server = None  # Сервер
-    ip = "localhost"
+    server_ip = "localhost"  # IP удалённого хоста
+    client_ip = "localhost"  # IP локального хоста
+
+    is_connected_to_server = False  # Подключён ли клиент к серверу
 
     def __init__(self):
         super().__init__()
@@ -60,11 +74,26 @@ class DiceRoller(QtWidgets.QMainWindow, diceroller_v1_1.Ui_MainWindow):
         self.setupUi(self)  # Это нужно для инициализации нашего дизайна
         self.rollDice_button.clicked.connect(self.roll_dice)
         self.createServer_button.clicked.connect(self.create_server)
-        # self.connect_button.setEnabled(False)  # Отключаем кнопку подключиться к серверу
+
+        self.mywidget = ServerWidget()  # Создали свой виджет
+        self.mywidget.evented.connect(self.server_action)  # Привязываем событие
+
         self.connect_button.clicked.connect(self.connect_to_server)
 
         # Установка начальных значений
         self.set_dice_variables()
+
+    def server_action(self):
+        """
+        Данный метод выполняется при получении данных из сети
+        :return:
+        """
+        if (self.last_data["type"] == "roll"):
+            self.parse_data(self.last_data)
+            self.ip_line.setText(self.client_ip)
+            self.show_roll_result()
+        if (self.last_data["type"] == "connect"):
+            pass
 
     def closeEvent(self, *args, **kwargs):
         """
@@ -95,9 +124,9 @@ class DiceRoller(QtWidgets.QMainWindow, diceroller_v1_1.Ui_MainWindow):
         self.show_roll_result()
 
     def get_dice_variables(self):
-        '''
+        """
         Устанавливает значения для броска из полей для ввода
-        '''
+        """
 
         # Получение введённых значений
 
@@ -148,17 +177,18 @@ class DiceRoller(QtWidgets.QMainWindow, diceroller_v1_1.Ui_MainWindow):
         return 0  # Нет ошибки
 
     def set_dice_variables(self):
-        '''
+        """
         Устанавливает значение полей ввода в соответствии с сохранёнными данными
-        '''
+        """
         self.diceDimentional_line.setText(str(self.roll_dimention))
         self.diceCount_line.setText(str(self.num_of_rolled_dices))
         self.diceBonus_line.setText(str(self.roll_bonus))
+        self.ip_line.setText(str(self.client_ip))
 
     def show_roll_result(self):
-        '''
+        """
         Отображает результат сохранённого броска кубиков в result_text
-        '''
+        """
         text_to_set = ""  # Текст для отображения в result_text
 
         # Вывод времени броска
@@ -199,9 +229,9 @@ class DiceRoller(QtWidgets.QMainWindow, diceroller_v1_1.Ui_MainWindow):
         self.show_text(text_to_set, True)  # Вывод текста
 
     def show_text(self, text, add=False):
-        '''
+        """
         Отображает text в result_text
-        '''
+        """
         # if add is True:
         #   last_text = self.result_text.toPlainText()
         #    text += last_text
@@ -209,43 +239,88 @@ class DiceRoller(QtWidgets.QMainWindow, diceroller_v1_1.Ui_MainWindow):
         if add is False:
             self.result_text.clear()
         self.result_text.append(text)
+        self.result_text.verticalScrollBar().setValue(self.result_text.verticalScrollBar().maximum())
 
     def create_server(self):
-        # Пока что работаем с localhost
-        # self.ip = self.ip_line.text()
-        class MyUDPHandler_with_object(MyUDPHandler):  # Костыль(?)
+        class MyUDPHandlerWithObject(MyUDPHandler):  # Костыль(?)
             DiceRoller_object = self  # Передаю ссылку на объект
 
-        self.ip = self.ip_line.text()
+        self.client_ip = self.ip_line.text()  # Получаем ip-адрес из строки
 
-        HOST, PORT = self.ip, 9999
-        self.server = socketserver.UDPServer((HOST, PORT), MyUDPHandler_with_object)
-        server_thread = threading.Thread(target=self.server.serve_forever)
-        server_thread.start()
+        HOST, PORT = self.client_ip, 9999
+        self.server = socketserver.UDPServer((HOST, PORT), MyUDPHandlerWithObject)  # Созадём севрер
+        server_thread = threading.Thread(target=self.server.serve_forever)  # Создаём поток
+        server_thread.start()  # Запускаем поток
 
-        self.show_text(texts[4], True)
+        self.show_text(texts[4], True)  # Выводим сообщение о запске сервера
+
+    def send_to_server(self, data):
+        """
+        Отправляет data на сервер
+        :param data: Словарь, за-dump-ленный с помощью json
+        """
+        if self.is_connected_to_server:
+            # Если есть подключение к серверу, отправляем data
+            HOST, PORT = self.server_ip, 9999
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                sock.sendto(data.encode(), (HOST, PORT))
+                print("Sent to {}:{} : {}".format(HOST, PORT, data))
+            except socket.gaierror:
+                self.show_text(errors_texts[4], True)
+            except OSError:
+                self.show_text(errors_texts[4], True)
+
+    def send_roll_to_server(self):
+        """
+        Отправляет текущий бросок на сервер
+        """
+        data_dict = {
+            "type": "roll",
+            "rolled_numbers": self.rolled_numbers,
+            "roll_sum": self.roll_sum,
+            "num_of_rolled_dices": self.num_of_rolled_dices,
+            "roll_dimention": self.roll_dimention,
+            "roll_bonus": self.roll_bonus,
+            "roll_from": "remote"
+        }
+        data = json.dumps(data_dict)
+        self.send_to_server(data)  # Отправка броска
 
     def connect_to_server(self):
-        self.ip = self.ip_line.text()
+        """
+        Отправить на сервер данные о попытке нового подключения
+        """
+        '''self.server_ip = self.ip_line.text()
 
         # Пока что просто пытаемся отправить data
-        HOST, PORT = self.ip, 9999
+        HOST, PORT = self.server_ip, 9999
         data_dict = {
             "rolled_numbers": self.rolled_numbers,
             "roll_sum": self.roll_sum,
             "num_of_rolled_dices": self.num_of_rolled_dices,
             "roll_dimention": self.roll_dimention,
             "roll_bonus": self.roll_bonus,
-            "roll_from" : "remote"
+            "roll_from": "remote"
         }
         data = json.dumps(data_dict)
         # SOCK_DGRAM is the socket type to use for UDP sockets
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.sendto(data.encode(), (HOST, PORT))
+            print("Sent to {}:{} : {}".format(HOST, PORT, data))
+        except socket.gaierror:
+            self.show_text(errors_texts[4], True)
+        except OSError:
+            self.show_text(errors_texts[4], True)'''
+        data_dict = {
+            "type": "connect",
+        }
+        data = json.dumps(data_dict)
+        self.send_to_server(data)  # Отправка желания подключения
 
-        # As you can see, there is no connect() call; UDP has no connections.
-        # Instead, data is directly sent to the recipient via sendto().
-        sock.sendto(data.encode(), (HOST, PORT))
-        print("Sent to {}:{} : {}".format(HOST,PORT,data))
+        # TODO: Продумать ответ сервера на запрос о подключении
+        self.create_server()  # Создаём сервер для приёма бросков
 
     def parse_data(self, data):
         """
